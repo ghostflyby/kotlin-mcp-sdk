@@ -120,7 +120,7 @@ public open class Server(
         block: Server.() -> Unit = {},
     ) : this(serverInfo, options, { instructions }, block)
 
-    private var _onConnect: (() -> Unit) = {}
+    private var _onConnect: ((ServerSession) -> Unit) = {}
 
     private var _onClose: () -> Unit = {}
 
@@ -266,18 +266,19 @@ public open class Server(
         sessionRegistry.addSession(session)
         notificationService.subscribeSession(session)
 
-        _onConnect()
+        _onConnect(session)
         return session
     }
 
     /**
      * Registers a callback to be invoked when the new server session connected.
+     * @param block receives the newly connected [ServerSession].
      */
-    public fun onConnect(block: () -> Unit) {
+    public fun onConnect(block: (ServerSession) -> Unit) {
         val old = _onConnect
-        _onConnect = {
-            old()
-            block()
+        _onConnect = { session ->
+            old(session)
+            block(session)
         }
     }
 

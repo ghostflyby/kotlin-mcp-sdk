@@ -47,12 +47,14 @@ kotlin {
             systemProperty("kotest.output.ansi", "true")
         }
     }
+    if (providers.gradleProperty("mcp.sdk.composite").orNull != "true") {
     macosArm64()
     linuxX64()
     linuxArm64()
     mingwX64()
     js { nodejs() }
     wasmJs { nodejs() }
+    }
 
     explicitApi = ExplicitApiMode.Strict
     jvmToolchain(21)
