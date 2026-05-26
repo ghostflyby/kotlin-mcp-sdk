@@ -1,0 +1,66 @@
+name: Sync Upstream Release
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ghostflyby/workspace-mcp-concurrency
+
+      - name: Fetch upstream releases
+        run: |
+          git remote add upstream https://github.com/modelcontextprotocol/kotlin-sdk.git
+          git fetch upstream --tags --force
+
+      - name: Find latest upstream release tag
+        id: release
+        run: |
+          LATEST_TAG=$(git tag --list --sort=-version:refname 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No upstream release tags found"
+            exit 0
+          fi
+          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "Latest upstream release: $LATEST_TAG"
+
+      - name: Check if already synced
+        id: check
+        run: |
+          if git merge-base --is-ancestor ${{ steps.release.outputs.tag }} HEAD 2>/dev/null; then
+            echo "synced=true" >> $GITHUB_OUTPUT
+            echo "Already synced to ${{ steps.release.outputs.tag }}"
+          else
+            echo "synced=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create sync branch
+        if: steps.check.outputs.synced == 'false'
+        run: |
+          BRANCH="sync/upstream-${{ steps.release.outputs.tag }}"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          git checkout -b $BRANCH
+          git merge ${{ steps.release.outputs.tag }} --no-edit || {
+            echo "Merge conflict detected; creating PR with conflict markers"
+          }
+          git push origin $BRANCH
+
+      - name: Create PR
+        if: steps.check.outputs.synced == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base ghostflyby/workspace-mcp-concurrency \
+            --head sync/upstream-${{ steps.release.outputs.tag }} \
+            --title "sync: merge upstream ${{ steps.release.outputs.tag }}" \
+            --body "Auto-sync from upstream release ${{ steps.release.outputs.tag }}.\n\nCI will run on this PR."
