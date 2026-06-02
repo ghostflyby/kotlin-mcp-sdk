@@ -23,7 +23,6 @@ import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 
 /**
  *  A transport implementation that uses Kotlin Coroutines Channels for asynchronous
@@ -44,6 +43,7 @@ public class ChannelTransport(
     override val logger: KLogger = KotlinLogging.logger {}
 
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val processingReady = CompletableDeferred<Unit>()
 
     /**
      * Creates a `ChannelTransport` instance using a single channel for both sending and receiving messages.
@@ -118,9 +118,8 @@ public class ChannelTransport(
         val started = CompletableDeferred<Unit>()
         scope.launch(CoroutineName("ChannelTransport#${hashCode()}-event-loop")) {
             try {
-                // Signal that event loop has started, then yield to ensure we're ready
                 started.complete(Unit)
-                yield()
+                processingReady.await()
 
                 for (message in receiveChannel) {
                     logger.debug { "Received message: ${message::class.simpleName}" }
@@ -139,6 +138,11 @@ public class ChannelTransport(
         }
         // Wait for the event loop to start
         started.await()
+    }
+
+    override suspend fun start() {
+        super.start()
+        processingReady.complete(Unit)
     }
 
     private fun launchMessageHandler(message: JSONRPCMessage) {
@@ -185,6 +189,7 @@ public class ChannelTransport(
                 logger.debug { "Cancelling separate receive channel" }
                 receiveChannel.cancel()
             }
+            processingReady.complete(Unit)
             // Join in-flight handler child jobs before cancelling the scope.
             // Filter out the current (event-loop) coroutine to avoid deadlock.
             val currentJob = currentCoroutineContext()[Job]
